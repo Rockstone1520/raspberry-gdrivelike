@@ -1,0 +1,32 @@
+services:
+  drive:
+    build: .
+    container_name: nube
+    restart: unless-stopped
+    # Debe coincidir con el uid/gid con que montaste la SSD (ver README)
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      # 127.0.0.1 = solo accesible desde la Pi; Tailscale lo expone con `tailscale serve`
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8070}:8070"
+    environment:
+      DATA_DIR: /data
+      CONFIG_DIR: /config
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-50}
+      TZ: America/Lima
+    volumes:
+      # SSD: si la ruta no existe (SSD sin montar) Docker falla en vez de crearla en la SD
+      - type: bind
+        source: ${DATA_PATH:-/mnt/ssd/drive}
+        target: /data
+        bind:
+          create_host_path: false
+      # Base de datos (usuarios/sesiones) en la SD, no en exFAT
+      - ./config:/config
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8070/api/health', timeout=3)" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
