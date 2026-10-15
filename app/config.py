@@ -19,3 +19,10 @@ MIN_FREE_BYTES = int(os.getenv("MIN_FREE_MB", "200")) * 1024**2
 # (así nunca escribe por error en la tarjeta SD).
 REQUIRE_MARKER = os.getenv("REQUIRE_MARKER", "true").lower() == "true"
 MARKER_NAME = ".nube-ok"
+
+# Miniaturas de fotos y videos. Caché oculto en la SSD (fuera de la carpeta de cualquier
+# usuario): se puede borrar entero sin riesgo, se regenera solo.
+THUMBS_DIR = DATA_DIR / ".thumbs"
+THUMB_SIZE = int(os.getenv("THUMB_SIZE", "320"))                    # lado mayor, en píxeles
+THUMB_QUALITY = int(os.getenv("THUMB_QUALITY", "55"))               # JPEG 1-95: menos = más liviano
+THUMB_VIDEO_SECOND = float(os.getenv("THUMB_VIDEO_SECOND", "1"))    # 0 = primer frame literal

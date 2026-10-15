@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 
 from fastapi import HTTPException
 
+from . import thumbs
 from .config import DATA_DIR
 
 INVALID = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -103,6 +104,7 @@ def list_dir(directory: Path) -> list[dict]:
                     "size": 0 if is_dir else st.st_size,
                     "modified": int(st.st_mtime),
                     "mime": None if is_dir else (mimetypes.guess_type(e.name)[0] or "application/octet-stream"),
+                    "thumb": (not is_dir) and thumbs.kind_of(e.name) is not None,   # ¿tiene miniatura?
                 }
             )
     items.sort(key=lambda i: (i["type"] != "dir", i["name"].casefold()))

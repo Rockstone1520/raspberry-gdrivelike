@@ -195,8 +195,9 @@ function render() {
 function row(it) {
   const p = join(state.path, it.name);
   const kind = kindOf(it);
-  const canThumb = kind === "image" && state.view === "grid" && it.size < 8e6 && !/svg|heic|heif|tiff/.test(it.mime);
-  const thumb = canThumb ? h("img", { src: dl(p, true), loading: "lazy", alt: "" }) : ico(kind);
+  // Icono de fondo; en cuadrícula, la miniatura (la genera el servidor) se superpone al cargar
+  const thumb = [ico(kind)];
+  if (it.thumb && state.view === "grid") thumb.push(thumbImg(p, it));
 
   const el = h("div", {
     class: "item " + (it.type === "dir" ? "dir" : "file"),
@@ -223,6 +224,29 @@ function row(it) {
     });
   }
   return el;
+}
+
+/* ---------- miniaturas ----------
+   <img loading="lazy"> pide /api/thumb solo cuando la tarjeta entra en pantalla.
+   200 = lista (el navegador la guarda). 202 = el servidor la está preparando: esperamos con
+   pausas crecientes. 404 = no se puede hacer: se queda el icono. */
+function thumbImg(p, it) {
+  const url = `/api/thumb?path=${enc(p)}&v=${it.modified}`;
+  const img = h("img", { src: url, alt: "", loading: "lazy", decoding: "async" });
+  img.addEventListener("load", () => img.classList.add("ok"));
+  img.addEventListener("error", () => waitThumb(img, url), { once: true });
+  return img;
+}
+async function waitThumb(img, url) {
+  for (let i = 1; i <= 60 && img.isConnected; i++) {
+    await sleep(Math.min(1000 * i, 5000));
+    if (!img.isConnected) return;
+    try {
+      const r = await fetch(url, { credentials: "same-origin" });
+      if (r.status === 200) { img.src = url; return; }
+      if (r.status !== 202) return;          // 404/401: sin miniatura, queda el icono
+    } catch { /* sin conexión: reintenta */ }
+  }
 }
 
 function openItem(it) {

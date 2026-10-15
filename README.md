@@ -8,6 +8,7 @@ FastAPI + frontend estático (sin build), Docker, archivos en la SSD, acceso por
 - Carpetas: crear, renombrar, mover (arrastrando sobre una carpeta), borrar
 - Subida múltiple con progreso, cola de 2 en paralelo, reintentos y arrastrar/soltar
 - Descarga con `Range` (reanudable), vista previa de imágenes/video/audio/PDF
+- Miniaturas en la cuadrícula: fotos (incluye HEIC) y un frame de los videos, generadas en segundo plano
 - 3 temas claros (Papel, Niebla, Menta) + 1 oscuro (Noche), responsive
 
 ## 1. Preparar la SSD (exFAT)
@@ -58,17 +59,31 @@ Después de crear tu usuario puedes borrar `ADMIN_PASSWORD` del `.env`.
 ## 3. Acceso con Tailscale (HTTPS, sin exponer nada a internet)
 
 ```bash
-sudo tailscale serve --bg 8070
+sudo tailscale serve --bg 8080
 tailscale serve status      # te muestra https://<pi>.<tailnet>.ts.net
 ```
 
 Con HTTPS pon `COOKIE_SECURE=true` en `.env` y `docker compose up -d`.
 La segunda persona debe estar en tu tailnet (o compartirle la Pi desde la consola de Tailscale).
 
+## Miniaturas (vista cuadrícula)
+
+- Se generan **una sola vez** y se guardan como JPEG pequeño (~320 px, calidad 55) en `DATA_PATH/.thumbs/<usuario>/…`, con la
+  misma estructura de carpetas que tus archivos (`.nombre.jpg`). Es un caché oculto: **puedes borrar `.thumbs` entero sin riesgo**, se regenera solo.
+- Al borrar, renombrar o mover un archivo o carpeta, su miniatura lo acompaña. Si borras o cambias archivos directamente en la SSD,
+  una limpieza automática (al arrancar y cada 24 h) elimina las miniaturas huérfanas.
+- Para videos se usa `ffmpeg` (frame del segundo 1; si el video es más corto, el primero). Se ejecuta de a uno, con la prioridad
+  de CPU más baja, y **espera mientras haya subidas o descargas en curso**. La primera vez que abras una carpeta nueva con muchos
+  videos verás los iconos y las miniaturas irán apareciendo.
+- Ajustes en `.env`: `THUMB_SIZE`, `THUMB_QUALITY` (menos = más liviano), `THUMB_VIDEO_SECOND` (0 = primer frame literal).
+  Tras cambiar el tamaño o la calidad, borra `DATA_PATH/.thumbs` para regenerarlas.
+- La primera construcción de la imagen en la Pi tarda más porque instala `ffmpeg`. Si `pillow-heif` diera problemas al instalar,
+  quita esa línea de `requirements.txt` (solo se pierden las miniaturas de fotos HEIC).
+
 ## Estructura
 
 ```
-app/        backend (config, db, security, storage, main, cli)
+app/        backend (config, db, security, storage, thumbs, main, cli)
 static/     frontend (index.html, css/style.css, js/app.js)
 config/     SQLite (se crea sola, fuera de la SSD)
 ```
@@ -79,5 +94,5 @@ Los archivos viven tal cual en `DATA_PATH/users/<usuario>/…`: puedes verlos y 
 
 1. **Subida realmente reanudable** (protocolo tus o troceado propio): hoy un reintento reinicia el archivo
 2. Subir carpetas completas, descargar carpetas en ZIP
-3. Papelera de reciclaje, miniaturas generadas en servidor, enlaces compartidos con expiración
+3. Papelera de reciclaje, enlaces compartidos con expiración
 4. Backups (restic/rsync a un segundo disco)

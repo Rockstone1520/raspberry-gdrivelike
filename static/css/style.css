@@ -73,7 +73,7 @@ i[data-icon] { display:inline-flex; }
 
 .main { min-width:0; padding:18px clamp(14px,3vw,36px) 120px; }
 .topbar { display:flex; align-items:center; gap:10px; }
-.search { flex:1; display:flex; align-items:center; gap:10px; height:40px; padding:0 14px; max-width:520px; border-radius:12px; background:var(--surface); border:1px solid var(--border); color:var(--muted); }
+.search { flex:1; min-width:0; display:flex; align-items:center; gap:10px; height:40px; padding:0 14px; max-width:520px; border-radius:12px; background:var(--surface); border:1px solid var(--border); color:var(--muted); }
 .search:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 .search input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--text); }
 .topbar .btn:first-of-type { margin-left:auto; }
@@ -90,9 +90,11 @@ i[data-icon] { display:inline-flex; }
 .item { position:relative; display:grid; align-items:center; gap:12px; padding:8px 10px; border-radius:12px; cursor:pointer; user-select:none; transition:background .12s; }
 .item:hover { background:var(--surface); }
 .item.drop { background:var(--accent-soft); outline:2px dashed var(--accent); outline-offset:-2px; }
-.thumb { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:var(--surface-2); color:var(--muted); overflow:hidden; }
+.thumb { position:relative; display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:var(--surface-2); color:var(--muted); overflow:hidden; }
 .item.dir .thumb { background:var(--accent-soft); color:var(--accent); }
-.thumb img { width:100%; height:100%; object-fit:cover; }
+/* La miniatura se superpone al icono y aparece con un fundido cuando termina de cargar */
+.thumb img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transition:opacity .25s; }
+.thumb img.ok { opacity:1; }
 .name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
 .meta { color:var(--muted); font-size:13px; }
 

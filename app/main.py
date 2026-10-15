@@ -11,11 +11,11 @@ from urllib.parse import quote
 
 import aiofiles
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, security, storage
+from . import config, db, security, storage, thumbs
 
 COOKIE = "session"
 CHUNK = 256 * 1024
@@ -32,6 +32,7 @@ async def lifespan(_: FastAPI):
         )
     db.init()
     security.bootstrap_admin()
+    thumbs.start()   # trabajador de miniaturas: segundo plano, prioridad mínima
     yield
 
 
@@ -165,7 +166,9 @@ def rename(body: RenameIn, user: dict = Depends(current_user)):
     dst = src.with_name(name)
     if dst.exists() and dst.name.casefold() != src.name.casefold():
         raise HTTPException(409, "Ya existe algo con ese nombre")
+    old_rel = storage.rel(root, src)
     os.rename(src, dst)
+    thumbs.relocate(user["username"], old_rel, storage.rel(root, dst))   # la miniatura se va con el archivo
     return {"name": name}
 
 
@@ -190,7 +193,9 @@ def move(body: MoveIn, user: dict = Depends(current_user)):
     target = dest / src.name
     if target.exists():
         raise HTTPException(409, "En el destino ya existe algo con ese nombre")
+    old_rel = storage.rel(root, src)
     shutil.move(str(src), str(target))
+    thumbs.relocate(user["username"], old_rel, storage.rel(root, target))
     return {"moved": True}
 
 
@@ -202,7 +207,9 @@ def delete(path: str, user: dict = Depends(current_user)):
         raise HTTPException(400, "No se puede borrar la carpeta raíz")
     if not p.exists():
         raise HTTPException(404, "No encontrado")
+    rel = storage.rel(root, p)
     shutil.rmtree(p) if p.is_dir() else p.unlink()
+    thumbs.discard(user["username"], rel)   # si se borra el original, se borra su miniatura
     return Response(status_code=204)
 
 
@@ -231,6 +238,7 @@ async def upload(
     final = storage.unique_name(directory, storage.sanitize_name(name))
     tmp = directory / f".{secrets.token_hex(6)}.part"
     written = 0
+    thumbs.begin_transfer()   # mientras haya transferencias, las miniaturas esperan
     try:
         async with aiofiles.open(tmp, "wb") as f:
             async for chunk in request.stream():
@@ -244,8 +252,11 @@ async def upload(
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    finally:
+        thumbs.end_transfer()
     if modified and 0 < modified < 4_102_444_800_000:
         os.utime(directory / final, (modified / 1000, modified / 1000))
+    thumbs.enqueue(user["username"], storage.rel(root, directory / final))   # miniatura lista antes de que abras la cuadrícula
     return {"name": final, "size": written}
 
 
@@ -272,15 +283,19 @@ def _parse_range(header: str, size: int):
 
 
 def _iter_file(path: Path, start: int, length: int):
-    with open(path, "rb") as f:
-        f.seek(start)
-        remaining = length
-        while remaining > 0:
-            data = f.read(min(CHUNK, remaining))
-            if not data:
-                break
-            remaining -= len(data)
-            yield data
+    thumbs.begin_transfer()   # mientras haya transferencias, las miniaturas esperan
+    try:
+        with open(path, "rb") as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                data = f.read(min(CHUNK, remaining))
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+    finally:
+        thumbs.end_transfer()
 
 
 def _safe_inline(mime: str) -> bool:
@@ -336,6 +351,26 @@ def _http_date(ts: float) -> str:
     from email.utils import formatdate
 
     return formatdate(ts, usegmt=True)
+
+
+# ---------------------------------------------------------------- miniaturas
+@app.get("/api/thumb")
+def thumb(path: str, v: str | None = None, user: dict = Depends(current_user)):
+    """Miniatura en caché. NUNCA espera a generarla (así no frena nada):
+    200 = lista · 202 = en cola, vuelve a preguntar · 404 = no se puede hacer.
+    `v` (la fecha de modificación) solo sirve para que el navegador renueve su caché."""
+    root = _root(user)
+    p = storage.resolve(root, path)
+    if not p.is_file() or thumbs.kind_of(p.name) is None:
+        raise HTTPException(404, "Sin miniatura")
+    rel, st = storage.rel(root, p), p.stat()
+    ready = thumbs.cached(user["username"], rel, st)
+    if ready:
+        return FileResponse(ready, media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=31536000, immutable"})
+    if thumbs.request(user["username"], rel, st) == "failed":
+        raise HTTPException(404, "No se pudo generar la miniatura", headers={"Cache-Control": "no-store"})
+    return JSONResponse({"status": "pending"}, status_code=202, headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------- frontend
